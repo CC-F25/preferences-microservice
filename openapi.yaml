@@ -1,0 +1,134 @@
+openapi: 3.0.3
+info:
+  title: Preferences Service API
+  version: 1.0.0
+  description: API for managing user housing preferences (budget, rooms, size, and neighborhood)
+servers:
+  - url: /api/preferences
+
+paths:
+  /:
+    post:
+      summary: Create or update a user's preferences
+      description: If preferences already exist for the user, they are updated. Otherwise, a new record is created.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PreferenceInput"
+            examples:
+              example1:
+                summary: Example request
+                value:
+                  user_id: "b01fbc13-12d2-4f4f-9c9b-7d00e233b3ae"
+                  budget_min: 2500
+                  budget_max: 4000
+                  rooms: 2
+                  size: 900
+                  neighborhood: ["Williamsburg", "Bushwick"]
+      responses:
+        "200":
+          description: Preferences successfully created or updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Preference"
+    get:
+      summary: Get all preferences (admin/debug)
+      responses:
+        "200":
+          description: List of all user preferences
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Preference"
+
+  /{userId}:
+    get:
+      summary: Get preferences for a specific user
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: User preference object
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Preference"
+        "404":
+          description: Preferences not found for this user
+    delete:
+      summary: Delete a user's preferences
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Preferences deleted successfully
+
+components:
+  schemas:
+    PreferenceInput:
+      type: object
+      required:
+        - user_id
+      properties:
+        user_id:
+          type: string
+          format: uuid
+          description: Unique ID of the user
+        budget_min:
+          type: integer
+          example: 2500
+        budget_max:
+          type: integer
+          example: 4000
+        rooms:
+          type: integer
+          example: 2
+        size:
+          type: integer
+          description: "Desired apartment size in square feet"
+          example: 900
+        neighborhood:
+          type: array
+          description: "List of preferred neighborhoods"
+          items:
+            type: string
+          example: ["Williamsburg", "Bushwick"]
+
+    Preference:
+      allOf:
+        - $ref: "#/components/schemas/PreferenceInput"
+        - type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+            created_at:
+              type: string
+              format: date-time
+            updated_at:
+              type: string
+              format: date-time
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+security:
+  - bearerAuth: []
