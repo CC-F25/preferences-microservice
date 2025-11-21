@@ -9,7 +9,7 @@ This microservice manages user housing preferences such as max budget, minimum s
 
 - python 3.10+
 - create a venv or conda environment
-- `pip install requirements.txt`
+- `pip install -r  requirements.txt`
 
 # Program Execution
 
