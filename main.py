@@ -8,7 +8,7 @@ from uuid import UUID, uuid4
 from fastapi import FastAPI, HTTPException, Path, status
 
 
-from .preferences import PreferenceCreate, PreferenceRead, PreferenceUpdate
+from models.preferences import PreferenceCreate, PreferenceRead, PreferenceUpdate
 
 # -----------------------------------------------------------------------------
 # Fake In-Memory "Database"
@@ -16,8 +16,7 @@ from .preferences import PreferenceCreate, PreferenceRead, PreferenceUpdate
 
 preferences_db: Dict[UUID, PreferenceRead] = {} 
 
-#port = int(os.environ.get("FASTAPIPORT", 8000))
-port = int(os.environ.get("PORT",8080)) #cloudrun port
+port = int(os.environ.get("FASTAPIPORT", 8000))
 
 # -----------------------------------------------------------------------------
 # FastAPI app
