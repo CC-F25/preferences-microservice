@@ -6,17 +6,18 @@ from typing import Dict, List, Optional
 from uuid import UUID, uuid4
 
 from fastapi import FastAPI, HTTPException, Path, status
-
+from sqlalchem.orm import Session
 
 from models.preferences import PreferenceCreate, PreferenceRead, PreferenceUpdate
 
 # -----------------------------------------------------------------------------
-# Fake In-Memory "Database"
+# Databse setup
 # -----------------------------------------------------------------------------
 
-preferences_db: Dict[UUID, PreferenceRead] = {} 
-
 port = int(os.environ.get("FASTAPIPORT", 8000))
+
+# This creates the table automatically if it doesn't exist
+Base.metadata.create_all(bind=engine)
 
 # -----------------------------------------------------------------------------
 # FastAPI app
