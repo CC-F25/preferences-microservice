@@ -6,7 +6,7 @@ from typing import Dict, List, Optional
 from uuid import UUID, uuid4
 
 from fastapi import FastAPI, HTTPException, Path, status
-from sqlalchem.orm import Session
+from sqlalchemy.orm import Session
 
 from models.preferences import PreferenceCreate, PreferenceRead, PreferenceUpdate
 from database import Base, engine, get_db
