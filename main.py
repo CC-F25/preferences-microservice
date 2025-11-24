@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Dict, List, Optional
 from uuid import UUID, uuid4
 
-from fastapi import FastAPI, HTTPException, Path, status
+from fastapi import FastAPI, HTTPException, Path, status, Depends
 from sqlalchemy.orm import Session
 
 from models.preferences import PreferenceCreate, PreferenceRead, PreferenceUpdate
@@ -45,40 +45,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
-# -----------------------------------------------------------------------------
-# Helper function
-# -----------------------------------------------------------------------------
-
-def make_preference_read(payload: PreferenceCreate, existing: Optional[PreferenceRead] = None) -> PreferenceRead:
-    """
-    Creates a new PreferenceRead object or updates an existing one.
-    """
-    now = datetime.utcnow()
-    
-    if existing:
-        return PreferenceRead(
-            id=existing.id,
-            user_id=payload.user_id,
-            max_budget=payload.max_budget,
-            min_size=payload.min_size,
-            location_area=payload.location_area,
-            rooms=payload.rooms,
-            created_at=existing.created_at,
-            updated_at=now,
-        )
-    else:
-        return PreferenceRead(
-            id=uuid4(),
-            user_id=payload.user_id,
-            max_budget=payload.max_budget,
-            min_size=payload.min_size,
-            location_area=payload.location_area,
-            rooms=payload.rooms,
-            created_at=now,
-            updated_at=now,
-        )
-
 # -----------------------------------------------------------------------------
 # FastAPI Endpoints
 # -----------------------------------------------------------------------------
@@ -87,7 +53,21 @@ def make_preference_read(payload: PreferenceCreate, existing: Optional[Preferenc
 @app.get("/", response_model=List[PreferenceRead])
 def get_all_preferences():
     """List of all user preferences."""
-    return list(preferences_db.values())
+    prefs = db.query(PreferencesDB).all()
+    # Ignore location_area and just return None for it
+    return [
+        PreferenceRead(
+            id=p.id,
+            user_id=p.user_id,
+            max_budget=p.max_budget,
+            min_size=p.min_size,
+            location_area=None,
+            rooms=p.rooms,
+            created_at=p.created_at,
+            updated_at=p.updated_at,
+        )
+        for p in prefs
+    ]
 
 ## POST / - Create or update a user's preferences
 @app.post("/", response_model=PreferenceRead, status_code=status.HTTP_200_OK)
@@ -96,17 +76,58 @@ def create_or_update_preferences(payload: PreferenceCreate):
     If preferences already exist for the user, they are updated. 
     Otherwise, a new record is created.
     """
-    user_id = payload.user_id
-    existing_preference = next((p for p in preferences_db.values() if p.user_id == user_id), None)
-    
-    if existing_preference:
-        new_preference = make_preference_read(payload, existing_preference)
-        preferences_db[existing_preference.id] = new_preference
-        return new_preference
+    user_id_str = str(payload.user_id)
+
+    existing = (
+        db.query(PreferencesDB)
+        .filter(PreferencesDB.user_id == user_id_str)
+        .first()
+    )
+
+    now = datetime.utcnow()
+
+    if existing:
+        existing.max_budget = payload.max_budget
+        existing.min_size = payload.min_size
+        # ignore location_area: set to None or leave as-is; here we just ignore it
+        existing.rooms = payload.rooms
+        existing.updated_at = now
+
+        db.commit()
+        db.refresh(existing)
+
+        return PreferenceRead(
+            id=existing.id,
+            user_id=existing.user_id,
+            max_budget=existing.max_budget,
+            min_size=existing.min_size,
+            location_area=None,
+            rooms=existing.rooms,
+            created_at=existing.created_at,
+            updated_at=existing.updated_at,
+        )
     else:
-        new_preference = make_preference_read(payload)
-        preferences_db[new_preference.id] = new_preference
-        return new_preference
+        new_pref = PreferencesDB(
+            user_id=user_id_str,
+            max_budget=payload.max_budget,
+            min_size=payload.min_size,
+            # ignore location_area entirely in DB
+            rooms=payload.rooms,
+        )
+        db.add(new_pref)
+        db.commit()
+        db.refresh(new_pref)
+
+        return PreferenceRead(
+            id=new_pref.id,
+            user_id=new_pref.user_id,
+            max_budget=new_pref.max_budget,
+            min_size=new_pref.min_size,
+            location_area=None,
+            rooms=new_pref.rooms,
+            created_at=new_pref.created_at,
+            updated_at=new_pref.updated_at,
+        )
 
 ## GET /{userId} - Get preferences for a specific user
 @app.get("/{userId}", response_model=PreferenceRead)
@@ -114,14 +135,30 @@ def get_user_preferences(
     userId: UUID = Path(..., description="The unique ID of the user")
 ):
     """Get preferences for a specific user."""
-    preference = next((p for p in preferences_db.values() if p.user_id == userId), None)
-    
-    if not preference:
+    user_id_str = str(userId)
+
+    pref = (
+        db.query(PreferencesDB)
+        .filter(PreferencesDB.user_id == user_id_str)
+        .first()
+    )
+
+    if not pref:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, 
             detail="Preferences not found for this user"
         )
-    return preference
+
+    return PreferenceRead(
+        id=pref.id,
+        user_id=pref.user_id,
+        max_budget=pref.max_budget,
+        min_size=pref.min_size,
+        location_area=None,
+        rooms=pref.rooms,
+        created_at=pref.created_at,
+        updated_at=pref.updated_at,
+    )
 
 ## DELETE /{userId} - Delete a user's preferences
 @app.delete("/{userId}", status_code=status.HTTP_204_NO_CONTENT)
@@ -129,12 +166,20 @@ def delete_user_preferences(
     userId: UUID = Path(..., description="The unique ID of the user")
 ):
     """Delete a user's preferences."""
-    preference_to_delete = next(((p_id, p) for p_id, p in preferences_db.items() if p.user_id == userId), None)
+    user_id_str = str(userId)
 
-    if not preference_to_delete:
+    pref = (
+        db.query(PreferencesDB)
+        .filter(PreferencesDB.user_id == user_id_str)
+        .first()
+    )
+
+    if not pref:
+        # 204 even if nothing deleted is fine
         return
 
-    del preferences_db[preference_to_delete[0]]
+    db.delete(pref)
+    db.commit()
     return
 
 ## PATCH /{userId} - Partially update a user's preferences
@@ -145,23 +190,45 @@ def update_user_preferences(
 ):
     """Partially update preferences for a specific user."""
     
-    preference_item = next(((p_id, p) for p_id, p in preferences_db.items() if p.user_id == userId), None)
+    user_id_str = str(userId)
 
-    if not preference_item:
+    pref = (
+        db.query(PreferencesDB)
+        .filter(PreferencesDB.user_id == user_id_str)
+        .first()
+    )
+
+    if not pref:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, 
             detail="Preferences not found for this user"
         )
-    
-    existing_id, existing_preference = preference_item
 
     update_data = payload.model_dump(exclude_unset=True)
-    updated_fields = existing_preference.model_copy(update=update_data)
-    updated_fields.updated_at = datetime.utcnow()
 
-    preferences_db[existing_id] = updated_fields
-    
-    return updated_fields
+    if "max_budget" in update_data:
+        pref.max_budget = update_data["max_budget"]
+    if "min_size" in update_data:
+        pref.min_size = update_data["min_size"]
+    # ignore location_area on purpose
+    if "rooms" in update_data:
+        pref.rooms = update_data["rooms"]
+
+    pref.updated_at = datetime.utcnow()
+
+    db.commit()
+    db.refresh(pref)
+
+    return PreferenceRead(
+        id=pref.id,
+        user_id=pref.user_id,
+        max_budget=pref.max_budget,
+        min_size=pref.min_size,
+        location_area=None,
+        rooms=pref.rooms,
+        created_at=pref.created_at,
+        updated_at=pref.updated_at,
+    )
 
 # -----------------------------------------------------------------------------
 # Entrypoint
