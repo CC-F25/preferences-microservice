@@ -4,6 +4,7 @@ import os
 from datetime import datetime
 from typing import Dict, List, Optional
 from uuid import UUID, uuid4
+from models.health import Health
 
 from fastapi import FastAPI, HTTPException, Path, status, Depends
 from sqlalchemy.orm import Session
@@ -229,6 +230,32 @@ def update_user_preferences(
         created_at=pref.created_at,
         updated_at=pref.updated_at,
     )
+
+# -----------------------------------------------------------------------------
+# Health endpoints
+# -----------------------------------------------------------------------------
+
+def make_health(echo: Optional[str], path_echo: Optional[str]=None) -> Health:
+    return Health(
+        status=200,
+        status_message="OK",
+        timestamp=datetime.utcnow().isoformat() + "Z",
+        ip_address=socket.gethostbyname(socket.gethostname()),
+        echo=echo,
+        path_echo=path_echo
+    )
+
+@app.get("/health", response_model=Health)
+def get_health_no_path(echo: str | None = Query(None, description="Optional echo string")):
+    # Works because path_echo is optional in the model
+    return make_health(echo=echo, path_echo=None)
+
+@app.get("/health/{path_echo}", response_model=Health)
+def get_health_with_path(
+    path_echo: str = Path(..., description="Required echo in the URL path"),
+    echo: str | None = Query(None, description="Optional echo string"),
+):
+    return make_health(echo=echo, path_echo=path_echo)
 
 # -----------------------------------------------------------------------------
 # Entrypoint
