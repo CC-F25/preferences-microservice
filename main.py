@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import socket
+from dotenv import load_dotenv
 from datetime import datetime
 from typing import Dict, List, Optional
 from uuid import UUID, uuid4
@@ -18,7 +19,8 @@ from models.preferences_sql import PreferencesDB
 # Databse setup
 # -----------------------------------------------------------------------------
 
-port = int(os.environ.get("FASTAPIPORT", 8080))
+load_dotenv()
+port = int(os.environ.get("FASTAPIPORT", 8000))
 
 # This creates the table automatically if it doesn't exist
 Base.metadata.create_all(bind=engine)
