@@ -52,7 +52,7 @@ app.add_middleware(
 
 ## GET / - Get all preferences (admin/debug)
 @app.get("/", response_model=List[PreferenceRead])
-def get_all_preferences():
+def get_all_preferences(db: Session = Depends(get_db)):
     """List of all user preferences."""
     prefs = db.query(PreferencesDB).all()
     # Ignore location_area and just return None for it
@@ -72,7 +72,7 @@ def get_all_preferences():
 
 ## POST / - Create or update a user's preferences
 @app.post("/", response_model=PreferenceRead, status_code=status.HTTP_200_OK)
-def create_or_update_preferences(payload: PreferenceCreate):
+def create_or_update_preferences(payload: PreferenceCreate, db: Session = Depends(get_db)):
     """
     If preferences already exist for the user, they are updated. 
     Otherwise, a new record is created.
@@ -133,7 +133,8 @@ def create_or_update_preferences(payload: PreferenceCreate):
 ## GET /{userId} - Get preferences for a specific user
 @app.get("/{userId}", response_model=PreferenceRead)
 def get_user_preferences(
-    userId: UUID = Path(..., description="The unique ID of the user")
+    userId: UUID = Path(..., description="The unique ID of the user"),
+    db: Session = Depends(get_db)
 ):
     """Get preferences for a specific user."""
     user_id_str = str(userId)
@@ -164,7 +165,8 @@ def get_user_preferences(
 ## DELETE /{userId} - Delete a user's preferences
 @app.delete("/{userId}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_user_preferences(
-    userId: UUID = Path(..., description="The unique ID of the user")
+    userId: UUID = Path(..., description="The unique ID of the user"),
+    db: Session = Depends(get_db)
 ):
     """Delete a user's preferences."""
     user_id_str = str(userId)
@@ -187,7 +189,8 @@ def delete_user_preferences(
 @app.patch("/{userId}", response_model=PreferenceRead)
 def update_user_preferences(
     payload: PreferenceUpdate,
-    userId: UUID = Path(..., description="The unique ID of the user")
+    userId: UUID = Path(..., description="The unique ID of the user"),
+    db: Session = Depends(get_db)
 ):
     """Partially update preferences for a specific user."""
     
