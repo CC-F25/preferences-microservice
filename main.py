@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import os
+import socket
 from datetime import datetime
 from typing import Dict, List, Optional
 from uuid import UUID, uuid4
 from models.health import Health
 
-from fastapi import FastAPI, HTTPException, Path, status, Depends
+from fastapi import FastAPI, HTTPException, Path, status, Depends, Query
 from sqlalchemy.orm import Session
 
 from models.preferences import PreferenceCreate, PreferenceRead, PreferenceUpdate
