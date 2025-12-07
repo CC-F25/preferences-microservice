@@ -16,7 +16,7 @@ from models.preferences_sql import PreferencesDB
 # Databse setup
 # -----------------------------------------------------------------------------
 
-port = int(os.environ.get("FASTAPIPORT", 8000))
+port = int(os.environ.get("FASTAPIPORT", 8080))
 
 # This creates the table automatically if it doesn't exist
 Base.metadata.create_all(bind=engine)
