@@ -87,7 +87,7 @@ def get_all_preferences():
     return list(preferences_db.values())
 
 ## POST / - Create or update a user's preferences
-@app.post("/", response_model=PreferenceRead, status_code=status.HTTP_200_OK)
+@app.post("/", response_model=PreferenceRead, status_code=status.HTTP_201_CREATED)
 def create_or_update_preferences(payload: PreferenceCreate):
     """
     If preferences already exist for the user, they are updated. 
