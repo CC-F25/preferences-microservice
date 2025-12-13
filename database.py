@@ -19,7 +19,9 @@ DATABASE_URL = f"mysql+pymysql://{db_user}:{db_pass}@{db_host}:{db_port}/{db_nam
 # create the SQLAlchemy engine and session
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-Base = DeclarativeBase()
+
+class Base(DeclarativeBase):
+    pass
 
 def get_db():
     db = SessionLocal()
