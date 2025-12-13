@@ -43,7 +43,7 @@ def location_from_json(location_str: Optional[str]) -> Optional[List[str]]:
 
 load_dotenv()
 # Google Cloud Run uses PORT, fallback to FASTAPIPORT or 8000
-port = int(os.environ.get("PORT", os.environ.get("FASTAPIPORT", 8000)))
+port = int(os.environ.get("PORT", os.environ.get("FASTAPIPORT", 8080)))
 
 # -----------------------------------------------------------------------------
 # FastAPI app
