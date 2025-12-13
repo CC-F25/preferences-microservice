@@ -16,8 +16,16 @@ db_port = os.environ.get("MYSQL_PORT", "3306")
 # mysql+pymysql://user:password@host:port/db_name
 DATABASE_URL = f"mysql+pymysql://{db_user}:{db_pass}@{db_host}:{db_port}/{db_name}"
 
-# create the SQLAlchemy engine and session
-engine = create_engine(DATABASE_URL)
+# create the SQLAlchemy engine with connection pooling for production
+# pool_pre_ping=True tests connections before using them (helps with Cloud SQL)
+# pool_recycle=3600 recycles connections after 1 hour
+engine = create_engine(
+    DATABASE_URL,
+    pool_pre_ping=True,  # Verify connections before using
+    pool_recycle=3600,   # Recycle connections after 1 hour
+    pool_size=5,         # Number of connections to maintain
+    max_overflow=10      # Additional connections beyond pool_size
+)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 class Base(DeclarativeBase):

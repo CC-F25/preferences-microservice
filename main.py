@@ -11,6 +11,7 @@ from models.health import Health
 
 from fastapi import FastAPI, HTTPException, Path, status, Depends, Query
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import SQLAlchemyError
 
 from models.preferences import PreferenceCreate, PreferenceRead, PreferenceUpdate
 from database import Base, engine, get_db
@@ -41,10 +42,8 @@ def location_from_json(location_str: Optional[str]) -> Optional[List[str]]:
 # -----------------------------------------------------------------------------
 
 load_dotenv()
-port = int(os.environ.get("FASTAPIPORT", 8000))
-
-# This creates the table automatically if it doesn't exist
-Base.metadata.create_all(bind=engine)
+# Google Cloud Run uses PORT, fallback to FASTAPIPORT or 8000
+port = int(os.environ.get("PORT", os.environ.get("FASTAPIPORT", 8000)))
 
 # -----------------------------------------------------------------------------
 # FastAPI app
@@ -55,6 +54,17 @@ app = FastAPI(
     description="API for managing user housing preferences (budget, rooms, size, and neighborhood)",
     version="1.0.0",
 )
+
+# Database initialization on startup
+@app.on_event("startup")
+async def startup_event():
+    """Initialize database tables on application startup."""
+    try:
+        Base.metadata.create_all(bind=engine)
+    except SQLAlchemyError as e:
+        print(f"Failed to create database tables: {e}")
+        # Don't raise - allow app to start even if DB connection fails
+        # Individual endpoints will handle DB errors
 
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -290,4 +300,6 @@ def get_health_with_path(
 if __name__ == "__main__":
     import uvicorn
     
-    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=True)
+    # Use reload only in development (when FASTAPIPORT is set, not PORT)
+    reload = os.environ.get("PORT") is None
+    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=reload)
