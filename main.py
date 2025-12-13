@@ -1,22 +1,50 @@
 from __future__ import annotations
 
 import os
+import socket
+import json
+from dotenv import load_dotenv
 from datetime import datetime
 from typing import Dict, List, Optional
 from uuid import UUID, uuid4
+from models.health import Health
 
-from fastapi import FastAPI, HTTPException, Path, status
-
+from fastapi import FastAPI, HTTPException, Path, status, Depends, Query
+from sqlalchemy.orm import Session
 
 from models.preferences import PreferenceCreate, PreferenceRead, PreferenceUpdate
+from database import Base, engine, get_db
+from models.preferences_sql import PreferencesDB
 
 # -----------------------------------------------------------------------------
-# Fake In-Memory "Database"
+# Helper functions for location_area conversion
 # -----------------------------------------------------------------------------
 
-preferences_db: Dict[UUID, PreferenceRead] = {} 
+def location_to_json(location_list: Optional[List[str]]) -> Optional[str]:
+    """Convert list of locations to JSON string for database storage."""
+    if location_list is None:
+        return None
+    return json.dumps(location_list)
 
+def location_from_json(location_str: Optional[str]) -> Optional[List[str]]:
+    """Convert JSON string from database back to list of locations."""
+    if location_str is None or location_str == "":
+        return None
+    try:
+        return json.loads(location_str)
+    except (json.JSONDecodeError, TypeError):
+        # If it's not valid JSON, return None
+        return None
+
+# -----------------------------------------------------------------------------
+# Database setup
+# -----------------------------------------------------------------------------
+
+load_dotenv()
 port = int(os.environ.get("FASTAPIPORT", 8000))
+
+# This creates the table automatically if it doesn't exist
+Base.metadata.create_all(bind=engine)
 
 # -----------------------------------------------------------------------------
 # FastAPI app
@@ -42,123 +70,219 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
-# -----------------------------------------------------------------------------
-# Helper function
-# -----------------------------------------------------------------------------
-
-def make_preference_read(payload: PreferenceCreate, existing: Optional[PreferenceRead] = None) -> PreferenceRead:
-    """
-    Creates a new PreferenceRead object or updates an existing one.
-    """
-    now = datetime.utcnow()
-    
-    if existing:
-        return PreferenceRead(
-            id=existing.id,
-            user_id=payload.user_id,
-            max_budget=payload.max_budget,
-            min_size=payload.min_size,
-            location_area=payload.location_area,
-            rooms=payload.rooms,
-            created_at=existing.created_at,
-            updated_at=now,
-        )
-    else:
-        return PreferenceRead(
-            id=uuid4(),
-            user_id=payload.user_id,
-            max_budget=payload.max_budget,
-            min_size=payload.min_size,
-            location_area=payload.location_area,
-            rooms=payload.rooms,
-            created_at=now,
-            updated_at=now,
-        )
-
 # -----------------------------------------------------------------------------
 # FastAPI Endpoints
 # -----------------------------------------------------------------------------
 
 ## GET / - Get all preferences (admin/debug)
 @app.get("/", response_model=List[PreferenceRead])
-def get_all_preferences():
+def get_all_preferences(db: Session = Depends(get_db)):
     """List of all user preferences."""
-    return list(preferences_db.values())
+    prefs = db.query(PreferencesDB).all()
+    return [
+        PreferenceRead(
+            id=p.id,
+            user_id=p.user_id,
+            max_budget=p.max_budget,
+            min_size=p.min_size,
+            location_area=location_from_json(p.location_area),  # Convert from JSON
+            rooms=p.rooms,
+            created_at=p.created_at,
+            updated_at=p.updated_at,
+        )
+        for p in prefs
+    ]
 
 ## POST / - Create or update a user's preferences
-@app.post("/", response_model=PreferenceRead, status_code=status.HTTP_201_CREATED)
-def create_or_update_preferences(payload: PreferenceCreate):
+@app.post("/", response_model=PreferenceRead, status_code=status.HTTP_200_OK)
+def create_or_update_preferences(payload: PreferenceCreate, db: Session = Depends(get_db)):
     """
     If preferences already exist for the user, they are updated. 
     Otherwise, a new record is created.
     """
-    user_id = payload.user_id
-    existing_preference = next((p for p in preferences_db.values() if p.user_id == user_id), None)
-    
-    if existing_preference:
-        new_preference = make_preference_read(payload, existing_preference)
-        preferences_db[existing_preference.id] = new_preference
-        return new_preference
+    user_id_str = str(payload.user_id)
+
+    existing = (
+        db.query(PreferencesDB)
+        .filter(PreferencesDB.user_id == user_id_str)
+        .first()
+    )
+
+    now = datetime.utcnow()
+
+    if existing:
+        existing.max_budget = payload.max_budget
+        existing.min_size = payload.min_size
+        existing.location_area = location_to_json(payload.location_area)  # Convert to JSON
+        existing.rooms = payload.rooms
+        existing.updated_at = now
+
+        db.commit()
+        db.refresh(existing)
+
+        return PreferenceRead(
+            id=existing.id,
+            user_id=existing.user_id,
+            max_budget=existing.max_budget,
+            min_size=existing.min_size,
+            location_area=location_from_json(existing.location_area),  # Convert back
+            rooms=existing.rooms,
+            created_at=existing.created_at,
+            updated_at=existing.updated_at,
+        )
     else:
-        new_preference = make_preference_read(payload)
-        preferences_db[new_preference.id] = new_preference
-        return new_preference
+        new_pref = PreferencesDB(
+            user_id=user_id_str,
+            max_budget=payload.max_budget,
+            min_size=payload.min_size,
+            location_area=location_to_json(payload.location_area),  # Convert to JSON
+            rooms=payload.rooms,
+        )
+        db.add(new_pref)
+        db.commit()
+        db.refresh(new_pref)
+
+        return PreferenceRead(
+            id=new_pref.id,
+            user_id=new_pref.user_id,
+            max_budget=new_pref.max_budget,
+            min_size=new_pref.min_size,
+            location_area=location_from_json(new_pref.location_area),  # Convert back
+            rooms=new_pref.rooms,
+            created_at=new_pref.created_at,
+            updated_at=new_pref.updated_at,
+        )
 
 ## GET /{userId} - Get preferences for a specific user
 @app.get("/{userId}", response_model=PreferenceRead)
 def get_user_preferences(
-    userId: UUID = Path(..., description="The unique ID of the user")
+    userId: UUID = Path(..., description="The unique ID of the user"),
+    db: Session = Depends(get_db)
 ):
     """Get preferences for a specific user."""
-    preference = next((p for p in preferences_db.values() if p.user_id == userId), None)
-    
-    if not preference:
+    user_id_str = str(userId)
+
+    pref = (
+        db.query(PreferencesDB)
+        .filter(PreferencesDB.user_id == user_id_str)
+        .first()
+    )
+
+    if not pref:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, 
             detail="Preferences not found for this user"
         )
-    return preference
+
+    return PreferenceRead(
+        id=pref.id,
+        user_id=pref.user_id,
+        max_budget=pref.max_budget,
+        min_size=pref.min_size,
+        location_area=location_from_json(pref.location_area),  # Convert back
+        rooms=pref.rooms,
+        created_at=pref.created_at,
+        updated_at=pref.updated_at,
+    )
 
 ## DELETE /{userId} - Delete a user's preferences
 @app.delete("/{userId}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_user_preferences(
-    userId: UUID = Path(..., description="The unique ID of the user")
+    userId: UUID = Path(..., description="The unique ID of the user"),
+    db: Session = Depends(get_db)
 ):
     """Delete a user's preferences."""
-    preference_to_delete = next(((p_id, p) for p_id, p in preferences_db.items() if p.user_id == userId), None)
+    user_id_str = str(userId)
 
-    if not preference_to_delete:
+    pref = (
+        db.query(PreferencesDB)
+        .filter(PreferencesDB.user_id == user_id_str)
+        .first()
+    )
+
+    if not pref:
+        # 204 even if nothing deleted is fine
         return
 
-    del preferences_db[preference_to_delete[0]]
+    db.delete(pref)
+    db.commit()
     return
 
 ## PATCH /{userId} - Partially update a user's preferences
 @app.patch("/{userId}", response_model=PreferenceRead)
 def update_user_preferences(
     payload: PreferenceUpdate,
-    userId: UUID = Path(..., description="The unique ID of the user")
+    userId: UUID = Path(..., description="The unique ID of the user"),
+    db: Session = Depends(get_db)
 ):
     """Partially update preferences for a specific user."""
     
-    preference_item = next(((p_id, p) for p_id, p in preferences_db.items() if p.user_id == userId), None)
+    user_id_str = str(userId)
 
-    if not preference_item:
+    pref = (
+        db.query(PreferencesDB)
+        .filter(PreferencesDB.user_id == user_id_str)
+        .first()
+    )
+
+    if not pref:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, 
             detail="Preferences not found for this user"
         )
-    
-    existing_id, existing_preference = preference_item
 
     update_data = payload.model_dump(exclude_unset=True)
-    updated_fields = existing_preference.model_copy(update=update_data)
-    updated_fields.updated_at = datetime.utcnow()
 
-    preferences_db[existing_id] = updated_fields
-    
-    return updated_fields
+    if "max_budget" in update_data:
+        pref.max_budget = update_data["max_budget"]
+    if "min_size" in update_data:
+        pref.min_size = update_data["min_size"]
+    if "location_area" in update_data:
+        pref.location_area = location_to_json(update_data["location_area"])  # Convert to JSON
+    if "rooms" in update_data:
+        pref.rooms = update_data["rooms"]
+
+    pref.updated_at = datetime.utcnow()
+
+    db.commit()
+    db.refresh(pref)
+
+    return PreferenceRead(
+        id=pref.id,
+        user_id=pref.user_id,
+        max_budget=pref.max_budget,
+        min_size=pref.min_size,
+        location_area=location_from_json(pref.location_area),  # Convert back
+        rooms=pref.rooms,
+        created_at=pref.created_at,
+        updated_at=pref.updated_at,
+    )
+
+# -----------------------------------------------------------------------------
+# Health endpoints
+# -----------------------------------------------------------------------------
+
+def make_health(echo: Optional[str], path_echo: Optional[str]=None) -> Health:
+    return Health(
+        status=200,
+        status_message="OK",
+        timestamp=datetime.utcnow().isoformat() + "Z",
+        ip_address=socket.gethostbyname(socket.gethostname()),
+        echo=echo,
+        path_echo=path_echo
+    )
+
+@app.get("/health", response_model=Health)
+def get_health_no_path(echo: str | None = Query(None, description="Optional echo string")):
+    # Works because path_echo is optional in the model
+    return make_health(echo=echo, path_echo=None)
+
+@app.get("/health/{path_echo}", response_model=Health)
+def get_health_with_path(
+    path_echo: str = Path(..., description="Required echo in the URL path"),
+    echo: str | None = Query(None, description="Optional echo string"),
+):
+    return make_health(echo=echo, path_echo=path_echo)
 
 # -----------------------------------------------------------------------------
 # Entrypoint
