@@ -1,86 +1,88 @@
-openapi: 3.0.3
-info:
-  title: Preferences Service API
-  version: 1.0.0
-  description: API for managing user housing preferences (budget, rooms, size, and neighborhood)
+openapi: 3.0.0
 servers:
-  - url: /api/preferences
-
+  - url: /api
+info:
+  description: API for managing user housing preferences (budget, rooms, size, and neighborhoods)
+  version: "1.0.0"
+  title: Preferences Service API
+  contact:
+    email: anusha.sonthalia@columbia.edu
+  license:
+    name: Apache 2.0
+    url: "http://www.apache.org/licenses/LICENSE-2.0.html"
+tags:
+  - name: admins
+    description: Secured Admin-only calls
+  - name: developers
+    description: Operations available to regular developers
 paths:
-  /:
-    post:
-      summary: Create or update a user's preferences
-      description: If preferences already exist for the user, they are updated. Otherwise, a new record is created.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/PreferenceInput"
-            examples:
-              example1:
-                summary: Example request
-                value:
-                  user_id: "b01fbc13-12d2-4f4f-9c9b-7d00e233b3ae"
-                  budget_min: 2500
-                  budget_max: 4000
-                  rooms: 2
-                  size: 900
-                  neighborhood: ["Williamsburg", "Bushwick"]
-      responses:
-        "200":
-          description: Preferences successfully created or updated
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Preference"
+  /preferences:
     get:
-      summary: Get all preferences (admin/debug)
+      tags:
+        - admins
+      summary: List all preferences 
+      operationId: listPreferences
+      description: |
+        Returns all user preferences in the system (admin/debug).
       responses:
-        "200":
-          description: List of all user preferences
+        '200':
+          description: list of preferences
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: "#/components/schemas/Preference"
-
-  /{userId}:
+                  $ref: "#/components/schemas/Preferences"
+    post:
+      tags:
+        - admins
+      summary: creates or updates preferences
+      operationId: upsertPreferences
+      description: |
+      Creates preferences if they do not exist for the user_id; otherwise updates them.
+      responses:
+        '201':
+          description: preference created
+        '400':
+          description: 'invalid input, object invalid'
+        '409':
+          description: an existing item already exists
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PreferencesUpsert"
+        description: Preferences to create or update
+  /preferences/{user_id}:
     get:
-      summary: Get preferences for a specific user
+      tags:
+        - developers
+      summary: gets preferences for a user
+      operationId: getPreferences
+      description: |
+        Retrieves preferences for a given user_id.
       parameters:
-        - name: userId
-          in: path
+        - in: path
+          name: user_id
+          description: user id to fetch preferences for
           required: true
           schema:
             type: string
             format: uuid
       responses:
         "200":
-          description: User preference object
+          description: preferences for the user
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Preference"
+                $ref: "#/components/schemas/Preferences"
+        "400":
+          description: bad input parameter
         "404":
-          description: Preferences not found for this user
-    delete:
-      summary: Delete a user's preferences
-      parameters:
-        - name: userId
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-      responses:
-        "204":
-          description: Preferences deleted successfully
-
+          description: preferences not found
 components:
   schemas:
-    PreferenceInput:
+    PreferencesUpsert:
       type: object
       required:
         - user_id
@@ -88,47 +90,67 @@ components:
         user_id:
           type: string
           format: uuid
-          description: Unique ID of the user
-        budget_min:
+          example: d290f1ee-6c54-4b01-90e6-d701748f0851
+        max_budget:
           type: integer
-          example: 2500
-        budget_max:
-          type: integer
+          format: int32
+          nullable: true
           example: 4000
+        min_size:
+          type: integer
+          format: int32
+          nullable: true
+          example: 900
+        location_area:
+          type: string
+          nullable: true
+          example: Williamsburg
         rooms:
           type: integer
+          format: int32
+          nullable: true
           example: 2
-        size:
+
+    Preferences:
+      type: object
+      required:
+        - id
+        - user_id
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: d290f1ee-6c54-4b01-90e6-d701748f0851
+        user_id:
+          type: string
+          format: uuid
+          example: b01fbc13-12d2-4f4f-9c9b-7d00e233b3ae
+        max_budget:
           type: integer
-          description: "Desired apartment size in square feet"
+          format: int32
+          nullable: true
+          example: 4000
+        min_size:
+          type: integer
+          format: int32
+          nullable: true
           example: 900
-        neighborhood:
-          type: array
-          description: "List of preferred neighborhoods"
-          items:
-            type: string
-          example: ["Williamsburg", "Bushwick"]
-
-    Preference:
-      allOf:
-        - $ref: "#/components/schemas/PreferenceInput"
-        - type: object
-          properties:
-            id:
-              type: string
-              format: uuid
-            created_at:
-              type: string
-              format: date-time
-            updated_at:
-              type: string
-              format: date-time
-
-  securitySchemes:
-    bearerAuth:
-      type: http
-      scheme: bearer
-      bearerFormat: JWT
-
-security:
-  - bearerAuth: []
+        location_area:
+          type: string
+          nullable: true
+          example: Williamsburg
+        rooms:
+          type: integer
+          format: int32
+          nullable: true
+          example: 2
+        created_at:
+          type: string
+          format: date-time
+          example: "2025-12-17T18:12:33.001Z"
+        updated_at:
+          type: string
+          format: date-time
+          example: "2025-12-17T18:12:33.001Z"
